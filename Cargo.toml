@@ -6,3 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+vulkano = "0.30.0"
+vulkano-shaders = "0.30.0"
+bytemuck = "1.8.0"
+image = "0.24"
+glm = "0.2.3"
+sdl2 = {version = "0.35.2", features = ["bundled"]}
+imgui = "0.8.2"
+stb_image = "0.2.4"
+tobj = "3.2.3"

@@ -1,4 +1,4 @@
-use crate::engine::event::Event;
+use crate::game_engine::event::Event;
 
 pub trait EventQueue {
   fn remove(&mut self, name: String);
