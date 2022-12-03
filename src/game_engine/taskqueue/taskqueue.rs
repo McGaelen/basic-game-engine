@@ -1,12 +1,12 @@
-use crate::game_engine::event::Event;
+use crate::game_engine::task::GameEvent;
 
-pub trait EventQueue {
+pub trait GameEventQueue {
   fn remove(&mut self, name: String);
   fn run_all(&mut self);
   fn prune(&mut self);
 }
 
-impl EventQueue for Vec<Event> {
+impl GameEventQueue for Vec<GameEvent> {
   fn remove(&mut self, name: String) {
     match self.iter().position(|event| event.name == name) {
       None => {},

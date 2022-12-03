@@ -1,10 +1,9 @@
-mod eventqueue;
-mod event;
+mod taskqueue;
 mod engine;
-mod renderer;
-mod game_window;
+mod graphics;
 
 pub use self::{
   engine::*,
-  event::*,
+  taskqueue::*,
+  graphics::*
 };
