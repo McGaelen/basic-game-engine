@@ -1,144 +1,144 @@
+#[cfg(target_arch="wasm32")]
+use wasm_bindgen::prelude::*;
+
+use std::borrow::Borrow;
+use std::task::Poll;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use wgpu::SurfaceError;
+use winit::dpi::PhysicalSize;
+use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::WindowBuilder;
 
-use super::event::Event;
-use super::eventqueue::EventQueue;
-use super::renderer::Renderer;
-use super::game_window::GameWindow;
-
-use std::{ffi::CString};
-use sdl2::video::{VkInstance};
-use sdl2::keyboard::Keycode;
-use sdl2::event::Event as SdlEvent;
-use vulkano::{
-  instance::{Instance, InstanceCreateInfo, InstanceExtensions},
-  device::{physical::{PhysicalDevice}, Device, QueueCreateInfo, DeviceCreateInfo}, Version, VulkanObject, Handle, swapchain::{Surface, SurfaceApi}
-};
+use super::task::GameEvent;
+use super::taskqueue::taskqueue::GameEventQueue;
+// use crate::game_engine::taskqueue::;
 
 const FRAME_DURATION: Duration = Duration::from_nanos(33_333_333);
 
 pub type MainLoopFn = fn(engine: &mut Engine) -> Result<(), String>;
 
 pub struct Engine {
-  pub renderer: Renderer,
-  pub game_window: GameWindow,
-  pub event_queue: Vec<Event>,
+  pub event_queue: Vec<GameEvent>,
   task: MainLoopFn,
+
+
 }
 
 impl Engine {
   pub fn run(task: MainLoopFn) {
-    let (renderer, game_window) = Engine::init();
-
     let mut engine = Engine {
-      renderer,
-      game_window,
       event_queue: Vec::new(),
       task,
     };
-    engine.main_loop();
+
+    pollster::block_on(Engine::init());
+
+    // engine.init()
+    // engine.main_loop();
   }
 
-  fn init() -> (Renderer, GameWindow) {
-    // Initialize SDL
-    let sdl_context = sdl2::init().expect("Failed to initialize sdl2.");
-    let event_pump = sdl_context.event_pump().unwrap();
-    let video_subsystem = sdl_context.video().expect("Failed to create video subsystem.");
+  async fn init() {
+    cfg_if::cfg_if! {
+      if #[cfg(target_arch = "wasm32")] {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+      } else {
+        env_logger::init();
+      }
+    }
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-    // Create a window
-    let window = video_subsystem.window("Vulkan Test App", 800, 600)
-        .vulkan()
-        .build()
-        .expect("Failed to create game window.");
+    #[cfg(target_arch = "wasm32")]
+    {
+      // Winit prevents sizing with CSS, so we have to set
+      // the size manually when on web.
+      use winit::dpi::PhysicalSize;
+      window.set_inner_size(PhysicalSize::new(450, 400));
 
-    // Add Vulkan extensions that allow it to render into a window
-    let instance_extensions_strings: Vec<CString> = window
-        .vulkan_instance_extensions()
-        .unwrap()
-        .iter()
-        .map(|&v| CString::new(v).unwrap())
-        .collect();
-    let enabled_extensions = InstanceExtensions::from(instance_extensions_strings.iter().map(AsRef::as_ref));
+      use winit::platform::web::WindowExtWebSys;
+      web_sys::window()
+          .and_then(|win| win.document())
+          .and_then(|doc| {
+            let dst = doc.get_element_by_id("wasm-example")?;
+            let canvas = web_sys::Element::from(window.canvas());
+            dst.append_child(&canvas).ok()?;
+            Some(())
+          })
+          .expect("Couldn't append canvas to document body.");
+    }
 
-    // Create Vulkan instance
-    let instance = Instance::new(InstanceCreateInfo {
-      application_name: Some("Vulkan Test App".to_string()),
-      enabled_extensions,
-      engine_version: Version::V1_2,
-      ..Default::default()
-    }).expect("Failed to create Vulkan instance");
+    let mut gfx_state =
+        super::graphics::graphics_state::GraphicsState::new(&window).await;
 
-    // Create surface for Vulkan to render to inside the window
-    let surface_handle = window
-        .vulkan_create_surface(instance.internal_object().as_raw() as VkInstance)
-        .expect("Failed to create surface handle.");
+    event_loop.run(move |event, _, control_flow| {
+      control_flow.set_poll();
 
-    let surface = unsafe {
-      Surface::from_raw_surface(
-        instance.clone(),
-        Handle::from_raw(surface_handle),
-        SurfaceApi::Win32,
-        window.context()
-      )
-    };
+      match event {
+        Event::NewEvents(_) => {}
 
-    // Take the first physical device we find
-    let physical_device = PhysicalDevice::enumerate(&instance).next()
-        .expect("No devices available that support Vulkan.");
+        Event::WindowEvent {
+          window_id,
+          ref event
+        } if window_id == window.id() => match event {
 
-    // Find all queue families on the physical device that support graphics.
-    // Then create a QueueCreateInfo for each of them.
-    let queue_create_infos: Vec<QueueCreateInfo> = physical_device.queue_families()
-        .into_iter()
-        .filter(|q| q.supports_graphics() || q.explicitly_supports_transfers())
-        .map(|q| QueueCreateInfo::family(q))
-        .collect();
+          WindowEvent::CloseRequested |
+          WindowEvent::KeyboardInput {
+            input: KeyboardInput {
+              state: ElementState::Pressed,
+              virtual_keycode: Some(VirtualKeyCode::Escape), ..
+            }, ..
+          } => control_flow.set_exit(),
 
-    // Initialize the device by telling Vulkan which queue families we want to use on the device.
-    let (device, mut queues) = Device::new(
-      physical_device,
-      DeviceCreateInfo {
-        queue_create_infos,
-        ..Default::default()
-      },
-    ).expect("failed to create device");
+          WindowEvent::KeyboardInput {
+            input: KeyboardInput {
+              state: ElementState::Pressed,
+              virtual_keycode: Some(VirtualKeyCode::A), ..
+            }, ..
+          } => println!("Hello there"),
 
-    let gfx_queue = queues
-        .find(|q| q.family().supports_graphics())
-        .expect("No graphics queue available.");
+          WindowEvent::Resized(physical_size) =>
+            gfx_state.resize(physical_size.width, physical_size.height),
 
-    let transfer_queue = queues
-        .find(|q| !q.family().supports_graphics() && q.family().explicitly_supports_transfers())
-        .unwrap_or(gfx_queue.clone());
+          WindowEvent::ScaleFactorChanged {new_inner_size, ..} =>
+            gfx_state.resize(new_inner_size.width, new_inner_size.height),
 
-    (
-        Renderer { device, gfx_queue, transfer_queue, },
-        GameWindow { sdl_context, event_pump, video_subsystem, window, surface, },
-    )
+          _ => {},
+        }
+
+        Event::WindowEvent { .. } => {}
+        Event::DeviceEvent { .. } => {}
+        Event::UserEvent(_) => {}
+
+        Event::Suspended => {}
+        Event::Resumed => {}
+
+        Event::MainEventsCleared => {
+          match gfx_state.render() {
+            Ok(_) => {},
+            Err(SurfaceError::Lost) => gfx_state.resize(
+              gfx_state.config.width,
+              gfx_state.config.height),
+            Err(SurfaceError::OutOfMemory) => control_flow.set_exit(),
+            Err(e) => println!("{:?}", e),
+          }
+        }
+        // Event::RedrawRequested(_) => {}
+        // Event::RedrawEventsCleared => {}
+        Event::LoopDestroyed => {}
+        _ => {}
+      };
+
+    });
   }
 
   fn main_loop(&mut self) {
-    'running: loop {
+    // loop {
       let start = SystemTime::now();
 
-      for event in self.game_window.event_pump.poll_iter() {
-        match event {
-          SdlEvent::Quit {..} | SdlEvent::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-            break 'running
-          },
-          SdlEvent::KeyDown {keycode: Some(Keycode::A), ..} => {
-            self.event_queue.push(Event {
-              task: || {
-                println!("doing the thingy")
-              },
-              name: "event".to_string(),
-              frames: 10
-            });
-          }
-          SdlEvent::KeyDown {keycode, ..} => println!("{:?}", keycode.unwrap()),
-          _ => {}
-        }
-      }
+    println!("hello!!!!");
 
       self.run_task();
 
@@ -146,7 +146,7 @@ impl Engine {
       self.event_queue.prune();
 
       Engine::end(start);
-    }
+    // }
   }
 
   fn run_task(&mut self) {
