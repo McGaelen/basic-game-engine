@@ -1,4 +1,21 @@
 pub mod vulkano_tutorial {
+  use image::{ImageBuffer, Rgba};
+  use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
+  use vulkano::command_buffer::{AutoCommandBufferBuilder, ClearColorImageInfo, CommandBufferUsage, CopyImageToBufferInfo, RenderPassBeginInfo, SubpassContents};
+  use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
+  use vulkano::device::{Device, DeviceCreateInfo, QueueCreateInfo};
+  use vulkano::device::physical::PhysicalDevice;
+  use vulkano::image::{ImageDimensions, StorageImage};
+  use vulkano::instance::{Instance, InstanceCreateInfo};
+  use vulkano::pipeline::{ComputePipeline, Pipeline, PipelineBindPoint};
+  use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo};
+  use vulkano::sync;
+  use vulkano::sync::GpuFuture;
+  use vulkano::format::Format;
+  use vulkano::image::view::ImageView;
+  use bytemuck::Zeroable;
+  use bytemuck::Pod;
+
   pub fn run() {
     // =================================== Initialization =================================================
     // Create Vulkan instance
@@ -252,6 +269,13 @@ pub mod vulkano_tutorial {
 
 
     // =================================== Graphics =================================================
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
+    struct Vertex {
+      position: [f32; 2]
+    }
+    vulkano::impl_vertex!(Vertex, position);
+
     // Create 3 Vertices
     let v1 = Vertex { position: [-0.5, -0.5] };
     let v2 = Vertex { position: [0.0, 0.5] };
@@ -328,17 +352,17 @@ pub mod vulkano_tutorial {
       CommandBufferUsage::OneTimeSubmit,
     ).unwrap();
 
-    builder
-        .begin_render_pass(
-          RenderPassBeginInfo {
-            framebuffer: framebuffer.clone(),
-            
-          },
-          SubpassContents::Inline,
-          vec![[0.0, 0.0, 1.0, 1.0].into()],
-        )
-        .unwrap()
-        .end_render_pass()
-        .unwrap();
+    // builder
+    //     .begin_render_pass(
+    //       RenderPassBeginInfo {
+    //         framebuffer: framebuffer.clone(),
+    //
+    //       },
+    //       SubpassContents::Inline,
+    //       vec![[0.0, 0.0, 1.0, 1.0].into()],
+    //     )
+    //     .unwrap()
+    //     .end_render_pass()
+    //     .unwrap();
   }
 }

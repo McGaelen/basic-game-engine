@@ -7,13 +7,22 @@ use super::renderer::Renderer;
 use super::game_window::GameWindow;
 
 use std::{ffi::CString};
+use imgui::{Condition, Window};
 use sdl2::video::{VkInstance};
 use sdl2::keyboard::Keycode;
 use sdl2::event::Event as SdlEvent;
+use vulkano::format::{ClearValue, Format};
+use vulkano::image::view::ImageView;
+use vulkano::image::{StorageImage, ImageDimensions};
 use vulkano::{
   instance::{Instance, InstanceCreateInfo, InstanceExtensions},
   device::{physical::{PhysicalDevice}, Device, QueueCreateInfo, DeviceCreateInfo}, Version, VulkanObject, Handle, swapchain::{Surface, SurfaceApi}
 };
+use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo};
+use vulkano::pipeline::graphics::vertex_input::{BuffersDefinition, Vertex};
+use vulkano::pipeline::graphics::viewport::Viewport;
+use vulkano::pipeline::GraphicsPipeline;
+use vulkano::render_pass::{RenderPass, RenderPassCreateInfo, SubpassDescription, AttachmentReference, Framebuffer, FramebufferCreateInfo};
 
 const FRAME_DURATION: Duration = Duration::from_nanos(33_333_333);
 
@@ -139,6 +148,93 @@ impl Engine {
           _ => {}
         }
       }
+
+      let mut builder = AutoCommandBufferBuilder::primary(
+        self.renderer.device.clone(), self.renderer.gfx_queue.family(), CommandBufferUsage::OneTimeSubmit
+      ).unwrap();
+
+      let render_pass = vulkano::single_pass_renderpass!(self.renderer.device.clone(),
+        attachments: {
+          color: {
+            load: Clear,
+            store: Store,
+            format: Format::R8G8B8A8_UNORM,
+            samples: 1,
+          }
+        },
+        pass: {
+          color: [color],
+          depth_stencil: {}
+        }
+      ).unwrap();
+
+      let image = StorageImage::new(
+        self.renderer.device.clone(),
+        ImageDimensions::Dim2d { width: 800, height: 600, array_layers: 1 },
+        Format::R8G8B8A8_UNORM,
+        Some(self.renderer.gfx_queue.family())
+      ).unwrap();
+      let view = ImageView::new_default(image.clone()).unwrap();
+
+      let framebuffer = Framebuffer::new(
+        render_pass.clone(),
+        FramebufferCreateInfo {
+          attachments: vec![view],
+          ..Default::default()
+        },
+      ).unwrap();
+
+      builder
+          .begin_render_pass(
+            RenderPassBeginInfo {
+              clear_values: vec![Some(ClearValue::Float([0.0, 0.0, 1.0, 1.0]))],
+              ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
+            },
+            vulkano::command_buffer::SubpassContents::Inline,
+          )
+          .unwrap()
+          .end_render_pass()
+          .unwrap();
+
+      mod vs {
+        vulkano_shaders::shader!{
+        ty: "vertex",
+        src: "
+#version 450
+
+layout(location = 0) in vec2 position;
+
+void main() {
+    gl_Position = vec4(position, 0.0, 1.0);
+}"
+    }
+      }
+
+      mod fs {
+        vulkano_shaders::shader!{
+        ty: "fragment",
+        src: "
+#version 450
+
+layout(location = 0) out vec4 f_color;
+
+void main() {
+    f_color = vec4(1.0, 0.0, 0.0, 1.0);
+}"
+    }
+      }
+
+      let vs = vs::load(self.renderer.device.clone()).expect("failed to create vs shader module");
+      let fs = fs::load(self.renderer.device.clone()).expect("failed to create fs shader module");
+
+      let viewport = Viewport {
+        origin: [0.0, 0.0],
+        dimensions: [800.0, 600.0],
+        depth_range: 0.0..1.0,
+      };
+
+      // let pipeline = GraphicsPipeline::start()
+      //     .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
 
       self.run_task();
 
